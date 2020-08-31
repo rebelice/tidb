@@ -130,6 +130,10 @@ func (s *testExpressionRewriterSuite) TestDefaultFunction(c *C) {
 
 	tk.MustExec("update t1 set c = c + default(c)")
 	tk.MustQuery("select c from t1").Check(testkit.Rows("11"))
+
+	// This is for issue #17807
+	tk.MustExec("create table t6(a int default 1, b int)")
+	tk.MustExec("select a, a from t6 order by default(a)")
 }
 
 func (s *testExpressionRewriterSuite) TestCompareSubquery(c *C) {

@@ -178,6 +178,10 @@ func FindFieldName(names types.NameSlice, astCol *ast.ColumnName) (int, error) {
 			if idx == -1 {
 				idx = i
 			} else {
+				if name.DBName.L == names[idx].DBName.L &&
+					name.TblName.L == names[idx].TblName.L {
+					continue
+				}
 				return -1, errNonUniq.GenWithStackByArgs(name.String(), "field list")
 			}
 		}
