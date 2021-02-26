@@ -871,6 +871,63 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 		ans []visitInfo
 	}{
 		{
+			sql: "select count(a) from t",
+			ans: []visitInfo{
+				{mysql.SelectPriv, "test", "t", "a", nil},
+			},
+		},
+		{
+			sql: "select count(1) from t",
+			ans: []visitInfo{
+				{mysql.SelectPriv, "test", "t", "a", nil},
+				{mysql.SelectPriv, "test", "t", "b", nil},
+				{mysql.SelectPriv, "test", "t", "c", nil},
+				{mysql.SelectPriv, "test", "t", "d", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "c_str", nil},
+				{mysql.SelectPriv, "test", "t", "d_str", nil},
+				{mysql.SelectPriv, "test", "t", "e_str", nil},
+				{mysql.SelectPriv, "test", "t", "f", nil},
+				{mysql.SelectPriv, "test", "t", "g", nil},
+				{mysql.SelectPriv, "test", "t", "h", nil},
+				{mysql.SelectPriv, "test", "t", "i_date", nil},
+			},
+		},
+		{
+			sql: "select count(*) from t",
+			ans: []visitInfo{
+				{mysql.SelectPriv, "test", "t", "a", nil},
+				{mysql.SelectPriv, "test", "t", "b", nil},
+				{mysql.SelectPriv, "test", "t", "c", nil},
+				{mysql.SelectPriv, "test", "t", "d", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "c_str", nil},
+				{mysql.SelectPriv, "test", "t", "d_str", nil},
+				{mysql.SelectPriv, "test", "t", "e_str", nil},
+				{mysql.SelectPriv, "test", "t", "f", nil},
+				{mysql.SelectPriv, "test", "t", "g", nil},
+				{mysql.SelectPriv, "test", "t", "h", nil},
+				{mysql.SelectPriv, "test", "t", "i_date", nil},
+			},
+		},
+		{
+			sql: "select * from t",
+			ans: []visitInfo{
+				{mysql.SelectPriv, "test", "t", "a", nil},
+				{mysql.SelectPriv, "test", "t", "b", nil},
+				{mysql.SelectPriv, "test", "t", "c", nil},
+				{mysql.SelectPriv, "test", "t", "d", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "c_str", nil},
+				{mysql.SelectPriv, "test", "t", "d_str", nil},
+				{mysql.SelectPriv, "test", "t", "e_str", nil},
+				{mysql.SelectPriv, "test", "t", "f", nil},
+				{mysql.SelectPriv, "test", "t", "g", nil},
+				{mysql.SelectPriv, "test", "t", "h", nil},
+				{mysql.SelectPriv, "test", "t", "i_date", nil},
+			},
+		},
+		{
 			sql: "select a from t",
 			ans: []visitInfo{
 				{mysql.SelectPriv, "test", "t", "a", nil},
@@ -932,7 +989,7 @@ func (s *testPlanSuite) TestVisitInfo(c *C) {
 		{
 			sql: "select a, sum(e) from t group by a",
 			ans: []visitInfo{
-				// {mysql.SelectPriv, "test", "t", "e", nil},
+				{mysql.SelectPriv, "test", "t", "e", nil},
 				{mysql.SelectPriv, "test", "t", "a", nil},
 			},
 		},

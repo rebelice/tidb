@@ -109,6 +109,19 @@ func (la *LogicalAggregation) collectGroupByColumns() {
 	}
 }
 
+
+func appendVisitInfoFromOrigName(vi []visitInfo,  ctx sessionctx.Context, origName string) []visitInfo {
+	names := strings.Split(origName, ".")
+	if len(names) == 3 {
+		var authErr error
+		if user := ctx.GetSessionVars().User; user != nil {
+			authErr = ErrTableaccessDenied.FastGenByArgs("SELECT", user.AuthUsername, user.AuthHostname, names[1], names[2])
+		}
+		return appendVisitInfo(vi, mysql.SelectPriv, names[0], names[1], names[2], authErr)
+	}
+	return vi
+}
+
 func (b *PlanBuilder) buildAggregation(ctx context.Context, p LogicalPlan, aggFuncList []*ast.AggregateFuncExpr, gbyItems []expression.Expression) (LogicalPlan, map[int]int, error) {
 	b.optFlag |= flagBuildKeyInfo
 	b.optFlag |= flagPushDownAgg
@@ -130,6 +143,7 @@ func (b *PlanBuilder) buildAggregation(ctx context.Context, p LogicalPlan, aggFu
 	// aggIdxMap maps the old index to new index after applying common aggregation functions elimination.
 	aggIndexMap := make(map[int]int)
 
+	var columnPrivHandled bool
 	for i, aggFunc := range aggFuncList {
 		newArgList := make([]expression.Expression, 0, len(aggFunc.Args))
 		for _, arg := range aggFunc.Args {
@@ -140,6 +154,17 @@ func (b *PlanBuilder) buildAggregation(ctx context.Context, p LogicalPlan, aggFu
 			p = np
 			newArgList = append(newArgList, newArg)
 		}
+
+		// For column level privilege check.
+		// select count(c) from t, count(c) is a expression, so we need to check it in aggregation instead of buildProjectionField().
+		// In buildProjectionField() the column obtained is the original string count(c).
+		for _, exp := range newArgList {
+			if col, ok := exp.(*expression.Column); ok {
+				b.visitInfo = appendVisitInfoFromOrigName(b.visitInfo, b.ctx, col.OrigName)
+				columnPrivHandled = true
+			}
+		}
+
 		newFunc, err := aggregation.NewAggFuncDesc(b.ctx, aggFunc.F, newArgList, aggFunc.Distinct)
 		if err != nil {
 			return nil, nil, err
@@ -163,6 +188,7 @@ func (b *PlanBuilder) buildAggregation(ctx context.Context, p LogicalPlan, aggFu
 			names = append(names, types.EmptyName)
 		}
 	}
+
 	for i, col := range p.Schema().Columns {
 		newFunc, err := aggregation.NewAggFuncDesc(b.ctx, ast.AggFuncFirstRow, []expression.Expression{col}, false)
 		if err != nil {
@@ -171,6 +197,11 @@ func (b *PlanBuilder) buildAggregation(ctx context.Context, p LogicalPlan, aggFu
 		plan4Agg.AggFuncs = append(plan4Agg.AggFuncs, newFunc)
 		newCol, _ := col.Clone().(*expression.Column)
 		newCol.RetType = newFunc.RetTp
+
+		if !columnPrivHandled  {
+			b.visitInfo = appendVisitInfoFromOrigName(b.visitInfo, b.ctx, newCol.OrigName)
+		}
+
 		schema4Agg.Append(newCol)
 		names = append(names, p.OutputNames()[i])
 	}
@@ -2201,6 +2232,7 @@ func (b *PlanBuilder) unfoldWildStar(p LogicalPlan, selectFields []*ast.SelectFi
 			return nil, ErrBadTable.GenWithStackByArgs(tblName)
 		}
 	}
+
 	return resultList, nil
 }
 
