@@ -17,6 +17,7 @@ package executor
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -3106,6 +3107,28 @@ func (b *executorBuilder) buildMPPGather(v *plannercore.PhysicalTableReader) Exe
 	return gather
 }
 
+type RestoreData struct {
+	DB    string
+	Table string
+	Where []string
+}
+
+func (d *RestoreData) String() string {
+	var buffer bytes.Buffer
+	fmt.Fprint(&buffer, "select * from ")
+	fmt.Fprint(&buffer, d.DB)
+	fmt.Fprint(&buffer, ".")
+	fmt.Fprint(&buffer, d.Table)
+	fmt.Fprint(&buffer, " where ")
+	for i, c := range d.Where {
+		if i != 0 {
+			fmt.Fprint(&buffer, " and ")
+		}
+		fmt.Fprint(&buffer, c)
+	}
+	return buffer.String()
+}
+
 // buildTableReader builds a table reader executor. It first build a no range table reader,
 // and then update it ranges from table scan plan.
 func (b *executorBuilder) buildTableReader(v *plannercore.PhysicalTableReader) Executor {
@@ -3141,6 +3164,43 @@ func (b *executorBuilder) buildTableReader(v *plannercore.PhysicalTableReader) E
 	ret.ranges = ts.Ranges
 	sctx := b.ctx.GetSessionVars().StmtCtx
 	sctx.TableIDs = append(sctx.TableIDs, ts.Table.ID)
+
+	if ok, id := ts.IsPartition(); ok {
+		info := RestoreData{Where: make([]string, 0)}
+		for _, p := range v.TablePlans {
+			switch x := p.(type) {
+			case *plannercore.PhysicalTableScan:
+				info.DB = x.DBName.L
+				info.Table = x.Table.Name.L
+				for i, part := range x.Table.Partition.Definitions {
+					if part.ID == id {
+						info.Where = append(info.Where, fmt.Sprintf("%v < %v", x.Table.Partition.Expr, part.LessThan[0]))
+						if i != 0 {
+							info.Where = append(info.Where, fmt.Sprintf("%v >= %v", x.Table.Partition.Expr, x.Table.Partition.Definitions[i-1].LessThan[0]))
+						}
+						break
+					}
+				}
+				var unsignedIntHandle bool
+				if ts.Table.PKIsHandle {
+					if pkColInfo := ts.Table.GetPkColInfo(); pkColInfo != nil {
+						unsignedIntHandle = mysql.HasUnsignedFlag(pkColInfo.Flag)
+					}
+				}
+				for _, r := range x.Ranges {
+					if r.IsFullRange(unsignedIntHandle) {
+						continue
+					}
+					info.Where = append(info.Where, r.RestoreString(x.Table.GetPkColName())...)
+				}
+			case *plannercore.PhysicalSelection:
+				for _, c := range x.Conditions {
+					info.Where = append(info.Where, c.Restore())
+				}
+			}
+		}
+		fmt.Println("[restore SQL]", info.String())
+	}
 
 	if !b.ctx.GetSessionVars().UseDynamicPartitionPrune() {
 		return ret

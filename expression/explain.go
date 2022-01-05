@@ -30,6 +30,53 @@ func (expr *ScalarFunction) ExplainInfo() string {
 	return expr.explainInfo(false)
 }
 
+func (expr *ScalarFunction) Restore() string {
+	return expr.restore()
+}
+
+func (expr *ScalarFunction) restore() string {
+	var buffer bytes.Buffer
+	switch expr.FuncName.L {
+	case ast.LT:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " < ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	case ast.GT:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " > ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	case ast.LE:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " <= ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	case ast.GE:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " >= ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	case ast.EQ:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " = ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	case ast.NE:
+		fmt.Fprint(&buffer, "(")
+		buffer.WriteString(expr.GetArgs()[0].Restore())
+		fmt.Fprint(&buffer, " != ")
+		buffer.WriteString(expr.GetArgs()[1].Restore())
+		fmt.Fprint(&buffer, ")")
+	}
+	return buffer.String()
+}
+
 func (expr *ScalarFunction) explainInfo(normalized bool) string {
 	var buffer bytes.Buffer
 	fmt.Fprintf(&buffer, "%s(", expr.FuncName.L)
@@ -78,6 +125,10 @@ func (col *Column) ExplainNormalizedInfo() string {
 	return "?"
 }
 
+func (col *Column) Restore() string {
+	return col.ExplainInfo()
+}
+
 // ExplainInfo implements the Expression interface.
 func (expr *Constant) ExplainInfo() string {
 	dt, err := expr.Eval(chunk.Row{})
@@ -101,6 +152,10 @@ func (expr *Constant) format(dt types.Datum) string {
 		return fmt.Sprintf("\"%v\"", dt.GetValue())
 	}
 	return fmt.Sprintf("%v", dt.GetValue())
+}
+
+func (expr *Constant) Restore() string {
+	return expr.ExplainInfo()
 }
 
 // ExplainExpressionList generates explain information for a list of expressions.
