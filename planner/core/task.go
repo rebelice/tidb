@@ -217,7 +217,7 @@ func (t *copTask) getStoreType() kv.StoreType {
 
 func (p *basePhysicalPlan) attach2Task(tasks ...task) task {
 	t := tasks[0].convertToRootTask(p.ctx)
-	p.cost = t.cost()
+	p.SetCost(p.children[0].Cost())
 	return attachPlan2Task(p.self, t)
 }
 
@@ -256,10 +256,9 @@ func (p *PhysicalApply) attach2Task(tasks ...task) task {
 	p.SetChildren(lTask.plan(), rTask.plan())
 	p.schema = BuildPhysicalJoinSchema(p.JoinType, p)
 	t := &rootTask{
-		p:   p,
-		cst: p.GetCost(lTask.count(), rTask.count(), lTask.cost(), rTask.cost()),
+		p: p,
 	}
-	p.cost = t.cost()
+	p.SetCost(p.GetCost(lTask.count(), rTask.count(), p.children[0].Cost(), p.children[1].Cost()))
 	return t
 }
 
@@ -299,17 +298,15 @@ func (p *PhysicalIndexMergeJoin) attach2Task(tasks ...task) task {
 		p.SetChildren(innerTask.plan(), outerTask.plan())
 	}
 	t := &rootTask{
-		p:   p,
-		cst: p.GetCost(outerTask, innerTask),
+		p: p,
 	}
-	p.cost = t.cost()
+	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
 // GetCost computes the cost of index merge join operator and its children.
-func (p *PhysicalIndexMergeJoin) GetCost(outerTask, innerTask task) float64 {
+func (p *PhysicalIndexMergeJoin) GetCost(outerCnt, outerCost, innerCnt, innerCost float64) float64 {
 	var cpuCost float64
-	outerCnt, innerCnt := outerTask.count(), innerTask.count()
 	sessVars := p.ctx.GetSessionVars()
 	// Add the cost of evaluating outer filter, since inner filter of index join
 	// is always empty, we can simply tell whether outer filter is empty using the
@@ -365,8 +362,8 @@ func (p *PhysicalIndexMergeJoin) GetCost(outerTask, innerTask task) float64 {
 	// So the memory cost consider the results size for each batch.
 	memoryCost := innerConcurrency * (batchSize * avgProbeCnt) * sessVars.MemoryFactor
 
-	innerPlanCost := outerCnt * innerTask.cost()
-	return outerTask.cost() + innerPlanCost + cpuCost + memoryCost
+	innerPlanCost := outerCnt * innerCost
+	return outerCost + innerPlanCost + cpuCost + memoryCost
 }
 
 func (p *PhysicalIndexHashJoin) attach2Task(tasks ...task) task {
@@ -378,17 +375,15 @@ func (p *PhysicalIndexHashJoin) attach2Task(tasks ...task) task {
 		p.SetChildren(innerTask.plan(), outerTask.plan())
 	}
 	t := &rootTask{
-		p:   p,
-		cst: p.GetCost(outerTask, innerTask),
+		p: p,
 	}
-	p.cost = t.cost()
+	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
 // GetCost computes the cost of index merge join operator and its children.
-func (p *PhysicalIndexHashJoin) GetCost(outerTask, innerTask task) float64 {
+func (p *PhysicalIndexHashJoin) GetCost(outerCnt, outerCost, innerCnt, innerCost float64) float64 {
 	var cpuCost float64
-	outerCnt, innerCnt := outerTask.count(), innerTask.count()
 	sessVars := p.ctx.GetSessionVars()
 	// Add the cost of evaluating outer filter, since inner filter of index join
 	// is always empty, we can simply tell whether outer filter is empty using the
@@ -442,8 +437,8 @@ func (p *PhysicalIndexHashJoin) GetCost(outerTask, innerTask task) float64 {
 	// since the executor is pipelined and not all workers are always in full load.
 	memoryCost := concurrency * (batchSize * distinctFactor) * innerCnt * sessVars.MemoryFactor
 	// Cost of inner child plan, i.e, mainly I/O and network cost.
-	innerPlanCost := outerCnt * innerTask.cost()
-	return outerTask.cost() + innerPlanCost + cpuCost + memoryCost
+	innerPlanCost := outerCnt * innerCost
+	return outerCost + innerPlanCost + cpuCost + memoryCost
 }
 
 func (p *PhysicalIndexJoin) attach2Task(tasks ...task) task {
@@ -455,17 +450,15 @@ func (p *PhysicalIndexJoin) attach2Task(tasks ...task) task {
 		p.SetChildren(innerTask.plan(), outerTask.plan())
 	}
 	t := &rootTask{
-		p:   p,
-		cst: p.GetCost(outerTask, innerTask),
+		p: p,
 	}
-	p.cost = t.cost()
+	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
 // GetCost computes the cost of index join operator and its children.
-func (p *PhysicalIndexJoin) GetCost(outerTask, innerTask task) float64 {
+func (p *PhysicalIndexJoin) GetCost(outerCnt, outerCost, innerCnt, innerCost float64) float64 {
 	var cpuCost float64
-	outerCnt, innerCnt := outerTask.count(), innerTask.count()
 	sessVars := p.ctx.GetSessionVars()
 	// Add the cost of evaluating outer filter, since inner filter of index join
 	// is always empty, we can simply tell whether outer filter is empty using the
@@ -508,8 +501,8 @@ func (p *PhysicalIndexJoin) GetCost(outerTask, innerTask task) float64 {
 	// since the executor is pipelined and not all workers are always in full load.
 	memoryCost := innerConcurrency * (batchSize * distinctFactor) * innerCnt * sessVars.MemoryFactor
 	// Cost of inner child plan, i.e, mainly I/O and network cost.
-	innerPlanCost := outerCnt * innerTask.cost()
-	return outerTask.cost() + innerPlanCost + cpuCost + memoryCost
+	innerPlanCost := outerCnt * innerCost
+	return outerCost + innerPlanCost + cpuCost + memoryCost
 }
 
 func getAvgRowSize(stats *property.StatsInfo, schema *expression.Schema) (size float64) {
@@ -612,10 +605,9 @@ func (p *PhysicalHashJoin) attach2Task(tasks ...task) task {
 	rTask := tasks[1].convertToRootTask(p.ctx)
 	p.SetChildren(lTask.plan(), rTask.plan())
 	task := &rootTask{
-		p:   p,
-		cst: lTask.cost() + rTask.cost() + p.GetCost(lTask.count(), rTask.count()),
+		p: p,
 	}
-	p.cost = task.cost()
+	p.SetCost(lTask.plan().Cost() + rTask.plan().Cost() + p.GetCost(lTask.count(), rTask.count()))
 	return task
 }
 
@@ -921,10 +913,9 @@ func (p *PhysicalMergeJoin) attach2Task(tasks ...task) task {
 	rTask := tasks[1].convertToRootTask(p.ctx)
 	p.SetChildren(lTask.plan(), rTask.plan())
 	t := &rootTask{
-		p:   p,
-		cst: lTask.cost() + rTask.cost() + p.GetCost(lTask.count(), rTask.count()),
+		p: p,
 	}
-	p.cost = t.cost()
+	p.SetCost(lTask.plan().Cost() + rTask.plan().Cost() + p.GetCost(lTask.count(), rTask.count()))
 	return t
 }
 
@@ -1233,7 +1224,7 @@ func (p *PhysicalLimit) attach2Task(tasks ...task) task {
 		pushedDownLimit.cost = mpp.cost()
 		t = mpp.convertToRootTask(p.ctx)
 	}
-	p.cost = t.cost()
+	p.SetCost(t.plan().Cost())
 	if sunk {
 		return t
 	}
@@ -1342,8 +1333,7 @@ func (p *PhysicalSort) GetCost(count float64, schema *expression.Schema) float64
 func (p *PhysicalSort) attach2Task(tasks ...task) task {
 	t := tasks[0].copy()
 	t = attachPlan2Task(p, t)
-	t.addCost(p.GetCost(t.count(), p.Schema()))
-	p.cost = t.cost()
+	p.SetCost(t.plan().Cost() + p.GetCost(t.count(), p.Schema()))
 	return t
 }
 
@@ -1417,8 +1407,7 @@ func (p *PhysicalTopN) attach2Task(tasks ...task) task {
 		mppTask.p = pushedDownTopN
 	}
 	rootTask := t.convertToRootTask(p.ctx)
-	rootTask.addCost(p.GetCost(rootTask.count(), true))
-	p.cost = rootTask.cost()
+	p.SetCost(rootTask.plan().Cost() + p.GetCost(rootTask.count(), true))
 	return attachPlan2Task(p, rootTask)
 }
 
@@ -1456,8 +1445,7 @@ func (p *PhysicalProjection) attach2Task(tasks ...task) task {
 	// TODO: support projection push down for TiKV.
 	t = t.convertToRootTask(p.ctx)
 	t = attachPlan2Task(p, t)
-	t.addCost(p.GetCost(t.count()))
-	p.cost = t.cost()
+	p.SetCost(t.plan().Cost() + p.GetCost(t.count()))
 	if root, ok := tasks[0].(*rootTask); ok && root.isEmpty {
 		t.(*rootTask).isEmpty = true
 	}
@@ -1489,6 +1477,10 @@ func (p *PhysicalUnionAll) attach2MppTasks(tasks ...task) task {
 	return t
 }
 
+func (p *PhysicalUnionAll) GetCost(childMaxCost float64, taskNum int) float64 {
+	return childMaxCost + float64(1+taskNum)*p.ctx.GetSessionVars().ConcurrencyFactor
+}
+
 func (p *PhysicalUnionAll) attach2Task(tasks ...task) task {
 	for _, t := range tasks {
 		if _, ok := t.(*mppTask); ok {
@@ -1500,22 +1492,22 @@ func (p *PhysicalUnionAll) attach2Task(tasks ...task) task {
 	var childMaxCost float64
 	for _, task := range tasks {
 		task = task.convertToRootTask(p.ctx)
-		childCost := task.cost()
+		childCost := task.plan().Cost()
 		if childCost > childMaxCost {
 			childMaxCost = childCost
 		}
 		childPlans = append(childPlans, task.plan())
 	}
 	p.SetChildren(childPlans...)
-	sessVars := p.ctx.GetSessionVars()
-	// Children of UnionExec are executed in parallel.
-	t.cst = childMaxCost + float64(1+len(tasks))*sessVars.ConcurrencyFactor
-	p.cost = t.cost()
+	p.SetCost(p.GetCost(childMaxCost, len(tasks)))
 	return t
 }
 
+func (sel *PhysicalSelection) GetCost(count float64) float64 {
+	return count * sel.ctx.GetSessionVars().CPUFactor
+}
+
 func (sel *PhysicalSelection) attach2Task(tasks ...task) task {
-	sessVars := sel.ctx.GetSessionVars()
 	if mppTask, _ := tasks[0].(*mppTask); mppTask != nil { // always push to mpp task.
 		sc := sel.ctx.GetSessionVars().StmtCtx
 		if expression.CanExprsPushDown(sc, sel.Conditions, sel.ctx.GetClient(), kv.TiFlash) {
@@ -1524,8 +1516,7 @@ func (sel *PhysicalSelection) attach2Task(tasks ...task) task {
 		}
 	}
 	t := tasks[0].convertToRootTask(sel.ctx)
-	t.addCost(t.count() * sessVars.CPUFactor)
-	sel.cost = t.cost()
+	sel.SetCost(t.plan().Cost() + sel.GetCost(t.count()))
 	return attachPlan2Task(sel, t)
 }
 
@@ -2069,8 +2060,7 @@ func (p *PhysicalStreamAgg) attach2Task(tasks ...task) task {
 	} else {
 		attachPlan2Task(p, t)
 	}
-	t.addCost(p.GetCost(inputRows, true))
-	p.SetCost(t.cost())
+	p.SetCost(t.plan().Cost() + p.GetCost(inputRows, true))
 	return t
 }
 
@@ -2286,8 +2276,7 @@ func (p *PhysicalHashAgg) attach2Task(tasks ...task) task {
 	// hash aggregation, it would cause under-estimation as the reason mentioned in comment above.
 	// To make it simple, we also treat 2-phase parallel hash aggregation in TiDB layer as
 	// 1-phase when computing cost.
-	t.addCost(p.GetCost(inputRows, true, false))
-	p.cost = t.cost()
+	p.SetCost(t.plan().Cost() + p.GetCost(inputRows, true, false))
 	return t
 }
 
