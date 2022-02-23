@@ -116,6 +116,9 @@ func (t *copTask) addCost(cst float64) {
 }
 
 func (t *copTask) cost() float64 {
+	if t.invalid() {
+		return math.MaxFloat64
+	}
 	var cst float64
 	if t.indexPlan != nil {
 		cst += t.indexPlan.Cost()
