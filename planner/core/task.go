@@ -923,7 +923,8 @@ func (p *PhysicalMergeJoin) attach2Task(tasks ...task) task {
 }
 
 func buildIndexLookUpTask(ctx sessionctx.Context, t *copTask) *rootTask {
-	newTask := &rootTask{cst: t.cost()}
+	totCost := t.cost()
+	newTask := &rootTask{}
 	sessVars := ctx.GetSessionVars()
 	p := PhysicalIndexLookUpReader{
 		tablePlan:        t.tablePlan,
@@ -949,10 +950,10 @@ func buildIndexLookUpTask(ctx sessionctx.Context, t *copTask) *rootTask {
 		// if the cost is enlarged, it'll be easier to go another plan.
 		idxCst = math.Min(idxCst, pagingCst)
 	}
-	newTask.cst += idxCst
+	totCost += idxCst
 	// Add cost of worker goroutines in index lookup.
 	numTblWorkers := float64(sessVars.IndexLookupConcurrency())
-	newTask.cst += (numTblWorkers + 1) * sessVars.ConcurrencyFactor
+	totCost += (numTblWorkers + 1) * sessVars.ConcurrencyFactor
 	// When building table reader executor for each batch, we would sort the handles. CPU
 	// cost of sort is:
 	// CPUFactor * batchSize * Log2(batchSize) * (indexRows / batchSize)
@@ -960,7 +961,7 @@ func buildIndexLookUpTask(ctx sessionctx.Context, t *copTask) *rootTask {
 	batchSize := math.Min(indexLookupSize, indexRows)
 	if batchSize > 2 {
 		sortCPUCost := (indexRows * math.Log2(batchSize) * sessVars.CPUFactor) / numTblWorkers
-		newTask.cst += sortCPUCost
+		totCost += sortCPUCost
 	}
 	// Also, we need to sort the retrieved rows if index lookup reader is expected to return
 	// ordered results. Note that row count of these two sorts can be different, if there are
@@ -970,15 +971,15 @@ func buildIndexLookUpTask(ctx sessionctx.Context, t *copTask) *rootTask {
 	batchSize = math.Min(indexLookupSize*selectivity, tableRows)
 	if t.keepOrder && batchSize > 2 {
 		sortCPUCost := (tableRows * math.Log2(batchSize) * sessVars.CPUFactor) / numTblWorkers
-		newTask.cst += sortCPUCost
+		totCost += sortCPUCost
 	}
-	p.cost = newTask.cst
+	p.cost = totCost
 	if t.needExtraProj {
 		schema := t.originSchema
 		proj := PhysicalProjection{Exprs: expression.Column2Exprs(schema.Columns)}.Init(ctx, p.stats, t.tablePlan.SelectBlockOffset(), nil)
 		proj.SetSchema(schema)
 		proj.SetChildren(p)
-		proj.cost = newTask.cst
+		proj.cost = totCost
 		newTask.p = proj
 	} else {
 		newTask.p = p
@@ -1062,9 +1063,8 @@ func (t *copTask) convertToRootTaskImpl(ctx sessionctx.Context) *rootTask {
 			t.originSchema = prevSchema
 		}
 	}
-	newTask := &rootTask{
-		cst: t.cost() / copIterWorkers,
-	}
+	totCost := t.cost() / copIterWorkers
+	newTask := &rootTask{}
 	if t.idxMergePartPlans != nil {
 		p := PhysicalIndexMergeReader{
 			partialPlans: t.idxMergePartPlans,
@@ -1073,14 +1073,14 @@ func (t *copTask) convertToRootTaskImpl(ctx sessionctx.Context) *rootTask {
 		p.PartitionInfo = t.partitionInfo
 		setTableScanToTableRowIDScan(p.tablePlan)
 		newTask.p = p
-		p.cost = newTask.cost()
+		p.cost = totCost
 		t.handleRootTaskConds(ctx, newTask)
 		if t.needExtraProj {
 			schema := t.originSchema
 			proj := PhysicalProjection{Exprs: expression.Column2Exprs(schema.Columns)}.Init(ctx, p.stats, t.idxMergePartPlans[0].SelectBlockOffset(), nil)
 			proj.SetSchema(schema)
 			proj.SetChildren(p)
-			proj.SetCost(newTask.cost())
+			proj.SetCost(totCost)
 			newTask.p = proj
 		}
 		return newTask
@@ -1091,7 +1091,7 @@ func (t *copTask) convertToRootTaskImpl(ctx sessionctx.Context) *rootTask {
 		p := PhysicalIndexReader{indexPlan: t.indexPlan}.Init(ctx, t.indexPlan.SelectBlockOffset())
 		p.PartitionInfo = t.partitionInfo
 		p.stats = t.indexPlan.statsInfo()
-		p.cost = newTask.cost()
+		p.cost = totCost
 		newTask.p = p
 	} else {
 		tp := t.tablePlan
@@ -1168,15 +1168,13 @@ func setTableScanToTableRowIDScan(p PhysicalPlan) {
 // rootTask is the final sink node of a plan graph. It should be a single goroutine on tidb.
 type rootTask struct {
 	p       PhysicalPlan
-	cst     float64
 	isEmpty bool // isEmpty indicates if this task contains a dual table and returns empty data.
 	// TODO: The flag 'isEmpty' is only checked by Projection and UnionAll. We should support more cases in the future.
 }
 
 func (t *rootTask) copy() task {
 	return &rootTask{
-		p:   t.p,
-		cst: t.cst,
+		p: t.p,
 	}
 }
 
@@ -1185,11 +1183,14 @@ func (t *rootTask) count() float64 {
 }
 
 func (t *rootTask) addCost(cst float64) {
-	t.cst += cst
+	panic("???")
 }
 
 func (t *rootTask) cost() float64 {
-	return t.cst
+	if t.invalid() {
+		return math.MaxFloat64
+	}
+	return t.p.Cost()
 }
 
 func (t *rootTask) plan() PhysicalPlan {
@@ -2385,10 +2386,7 @@ func (t *mppTask) convertToRootTaskImpl(ctx sessionctx.Context) *rootTask {
 	if p.ctx.GetSessionVars().IsMPPEnforced() {
 		p.cost /= 1000000000
 	}
-	rt := &rootTask{
-		p:   p,
-		cst: p.cost,
-	}
+	rt := &rootTask{p: p}
 	return rt
 }
 

@@ -98,7 +98,7 @@ func (c *PlanCounterTp) IsForce() bool {
 	return *c != -1
 }
 
-var invalidTask = &rootTask{cst: math.MaxFloat64}
+var invalidTask = &rootTask{}
 
 // GetPropByOrderByItems will check if this sort property can be pushed or not. In order to simplify the problem, we only
 // consider the case that all expression are columns.
@@ -1076,7 +1076,8 @@ func checkColinSchema(cols []*expression.Column, schema *expression.Schema) bool
 }
 
 func (ds *DataSource) convertToPartialTableScan(prop *property.PhysicalProperty, path *util.AccessPath) (tablePlan PhysicalPlan) {
-	ts, partialCost, rowCount := ds.getOriginalPhysicalTableScan(prop, path, false)
+	ts, rowCount := ds.getOriginalPhysicalTableScan(prop, path, false)
+	partialCost := ts.Cost()
 	overwritePartialTableScanSchema(ds, ts)
 	// remove ineffetive filter condition after overwriting physicalscan schema
 	newFilterConds := make([]expression.Expression, 0, len(path.TableFilters))
@@ -1963,7 +1964,6 @@ func (ds *DataSource) convertToPointGet(prop *property.PhysicalProperty, candida
 		}
 	}
 
-	rTsk.cst = cost
 	pointGetPlan.SetCost(cost)
 	return rTsk
 }
@@ -2038,7 +2038,6 @@ func (ds *DataSource) convertToBatchPointGet(prop *property.PhysicalProperty,
 		}
 	}
 
-	rTsk.cst = cost
 	batchPointGetPlan.SetCost(cost)
 	return rTsk
 }
@@ -2055,10 +2054,10 @@ func (ts *PhysicalTableScan) addPushedDownSelectionToMppTask(mpp *mppTask, stats
 	// Add filter condition to table plan now.
 	sessVars := ts.ctx.GetSessionVars()
 	if len(ts.filterCondition) > 0 {
-		mpp.cst += mpp.count() * sessVars.CopCPUFactor
+		cst := mpp.cost() + mpp.count()*sessVars.CopCPUFactor
 		sel := PhysicalSelection{Conditions: ts.filterCondition}.Init(ts.ctx, stats, ts.blockOffset)
 		sel.SetChildren(ts)
-		sel.cost = mpp.cst
+		sel.cost = cst
 		mpp.p = sel
 	}
 	return mpp
@@ -2229,7 +2228,8 @@ func (p *LogicalCTE) findBestTask(prop *property.PhysicalProperty, planCounter *
 	if p.cte.recursivePartPhysicalPlan != nil {
 		cst += p.cte.recursivePartPhysicalPlan.Cost()
 	}
-	t = &rootTask{pcte, cst, false}
+	pcte.SetCost(cst)
+	t = &rootTask{pcte, false}
 	if prop.CanAddEnforcer {
 		t = enforceProperty(prop, t, p.basePlan.ctx)
 	}
