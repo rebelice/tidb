@@ -77,6 +77,7 @@ type PointGetPlan struct {
 	partitionColumnPos int
 	Columns            []*model.ColumnInfo
 	cost               float64
+	availableCost      bool
 }
 
 type nameValuePair struct {
@@ -98,6 +99,10 @@ func (p *PointGetPlan) Cost() float64 {
 // SetCost implements PhysicalPlan interface
 func (p *PointGetPlan) SetCost(cost float64) {
 	p.cost = cost
+}
+
+func (p *PointGetPlan) NeedReCalcCost() {
+	p.availableCost = false
 }
 
 // attach2Task makes the current physical plan as the father of task's physicalPlan and updates the cost of
@@ -299,6 +304,8 @@ type BatchPointGetPlan struct {
 	SinglePart bool
 	// PartTblID is the table ID for the specific table partition.
 	PartTblID int64
+
+	availableCost bool
 }
 
 // Cost implements PhysicalPlan interface
@@ -309,6 +316,10 @@ func (p *BatchPointGetPlan) Cost() float64 {
 // SetCost implements PhysicalPlan interface
 func (p *BatchPointGetPlan) SetCost(cost float64) {
 	p.cost = cost
+}
+
+func (p *BatchPointGetPlan) NeedReCalcCost() {
+	p.availableCost = false
 }
 
 // Clone implements PhysicalPlan interface.
