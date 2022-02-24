@@ -220,23 +220,23 @@ func (t *copTask) getStoreType() kv.StoreType {
 
 func (p *basePhysicalPlan) attach2Task(tasks ...task) task {
 	t := tasks[0].convertToRootTask(p.ctx)
-	p.SetCost(p.children[0].Cost())
 	return attachPlan2Task(p.self, t)
 }
 
 func (p *PhysicalUnionScan) attach2Task(tasks ...task) task {
-	p.cost = tasks[0].cost()
 	// We need to pull the projection under unionScan upon unionScan.
 	// Since the projection only prunes columns, it's ok the put it upon unionScan.
 	if sel, ok := tasks[0].plan().(*PhysicalSelection); ok {
 		if pj, ok := sel.children[0].(*PhysicalProjection); ok {
 			// Convert unionScan->selection->projection to projection->unionScan->selection.
 			sel.SetChildren(pj.children...)
+			sel.NeedReCalcCost()
 			p.SetChildren(sel)
 			p.stats = tasks[0].plan().statsInfo()
 			rt, _ := tasks[0].(*rootTask)
 			rt.p = p
 			pj.SetChildren(p)
+			pj.NeedReCalcCost()
 			return pj.attach2Task(tasks...)
 		}
 	}
@@ -247,6 +247,7 @@ func (p *PhysicalUnionScan) attach2Task(tasks ...task) task {
 		rt, _ := tasks[0].(*rootTask)
 		rt.p = pj.children[0]
 		pj.SetChildren(p)
+		pj.NeedReCalcCost()
 		return pj.attach2Task(p.basePhysicalPlan.attach2Task(tasks...))
 	}
 	p.stats = tasks[0].plan().statsInfo()
@@ -261,7 +262,6 @@ func (p *PhysicalApply) attach2Task(tasks ...task) task {
 	t := &rootTask{
 		p: p,
 	}
-	p.SetCost(p.GetCost(lTask.count(), rTask.count(), p.children[0].Cost(), p.children[1].Cost()))
 	return t
 }
 
@@ -303,7 +303,6 @@ func (p *PhysicalIndexMergeJoin) attach2Task(tasks ...task) task {
 	t := &rootTask{
 		p: p,
 	}
-	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
@@ -380,7 +379,6 @@ func (p *PhysicalIndexHashJoin) attach2Task(tasks ...task) task {
 	t := &rootTask{
 		p: p,
 	}
-	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
@@ -455,7 +453,6 @@ func (p *PhysicalIndexJoin) attach2Task(tasks ...task) task {
 	t := &rootTask{
 		p: p,
 	}
-	p.SetCost(p.GetCost(outerTask.count(), outerTask.plan().Cost(), innerTask.count(), innerTask.plan().Cost()))
 	return t
 }
 
@@ -610,7 +607,6 @@ func (p *PhysicalHashJoin) attach2Task(tasks ...task) task {
 	task := &rootTask{
 		p: p,
 	}
-	p.SetCost(lTask.plan().Cost() + rTask.plan().Cost() + p.GetCost(lTask.count(), rTask.count()))
 	return task
 }
 
@@ -918,7 +914,6 @@ func (p *PhysicalMergeJoin) attach2Task(tasks ...task) task {
 	t := &rootTask{
 		p: p,
 	}
-	p.SetCost(lTask.plan().Cost() + rTask.plan().Cost() + p.GetCost(lTask.count(), rTask.count()))
 	return t
 }
 
@@ -1228,7 +1223,6 @@ func (p *PhysicalLimit) attach2Task(tasks ...task) task {
 		pushedDownLimit.cost = mpp.cost()
 		t = mpp.convertToRootTask(p.ctx)
 	}
-	p.SetCost(t.plan().Cost())
 	if sunk {
 		return t
 	}
@@ -1337,7 +1331,6 @@ func (p *PhysicalSort) GetCost(count float64, schema *expression.Schema) float64
 func (p *PhysicalSort) attach2Task(tasks ...task) task {
 	t := tasks[0].copy()
 	t = attachPlan2Task(p, t)
-	p.SetCost(t.plan().Cost() + p.GetCost(t.count(), p.Schema()))
 	return t
 }
 
@@ -1411,7 +1404,6 @@ func (p *PhysicalTopN) attach2Task(tasks ...task) task {
 		mppTask.p = pushedDownTopN
 	}
 	rootTask := t.convertToRootTask(p.ctx)
-	p.SetCost(rootTask.plan().Cost() + p.GetCost(rootTask.count(), true))
 	return attachPlan2Task(p, rootTask)
 }
 
@@ -1449,7 +1441,6 @@ func (p *PhysicalProjection) attach2Task(tasks ...task) task {
 	// TODO: support projection push down for TiKV.
 	t = t.convertToRootTask(p.ctx)
 	t = attachPlan2Task(p, t)
-	p.SetCost(t.plan().Cost() + p.GetCost(t.count()))
 	if root, ok := tasks[0].(*rootTask); ok && root.isEmpty {
 		t.(*rootTask).isEmpty = true
 	}
@@ -1493,17 +1484,11 @@ func (p *PhysicalUnionAll) attach2Task(tasks ...task) task {
 	}
 	t := &rootTask{p: p}
 	childPlans := make([]PhysicalPlan, 0, len(tasks))
-	var childMaxCost float64
 	for _, task := range tasks {
 		task = task.convertToRootTask(p.ctx)
-		childCost := task.plan().Cost()
-		if childCost > childMaxCost {
-			childMaxCost = childCost
-		}
 		childPlans = append(childPlans, task.plan())
 	}
 	p.SetChildren(childPlans...)
-	p.SetCost(p.GetCost(childMaxCost, len(tasks)))
 	return t
 }
 
@@ -1520,7 +1505,6 @@ func (sel *PhysicalSelection) attach2Task(tasks ...task) task {
 		}
 	}
 	t := tasks[0].convertToRootTask(sel.ctx)
-	sel.SetCost(t.plan().Cost() + sel.GetCost(t.count()))
 	return attachPlan2Task(sel, t)
 }
 
@@ -2064,7 +2048,6 @@ func (p *PhysicalStreamAgg) attach2Task(tasks ...task) task {
 	} else {
 		attachPlan2Task(p, t)
 	}
-	p.SetCost(t.plan().Cost() + p.GetCost(inputRows, true))
 	return t
 }
 
@@ -2268,19 +2251,7 @@ func (p *PhysicalHashAgg) attach2Task(tasks ...task) task {
 	} else {
 		attachPlan2Task(p, t)
 	}
-	// We may have 3-phase hash aggregation actually, strictly speaking, we'd better
-	// calculate cost of each phase and sum the results up, but in fact we don't have
-	// region level table stats, and the concurrency of the `partialAgg`,
-	// i.e, max(number_of_regions, DistSQLScanConcurrency) is unknown either, so it is hard
-	// to compute costs separately. We ignore region level parallelism for both hash
-	// aggregation and stream aggregation when calculating cost, though this would lead to inaccuracy,
-	// hopefully this inaccuracy would be imposed on both aggregation implementations,
-	// so they are still comparable horizontally.
-	// Also, we use the stats of `partialAgg` as the input of cost computing for TiDB layer
-	// hash aggregation, it would cause under-estimation as the reason mentioned in comment above.
-	// To make it simple, we also treat 2-phase parallel hash aggregation in TiDB layer as
-	// 1-phase when computing cost.
-	p.SetCost(t.plan().Cost() + p.GetCost(inputRows, true, false))
+
 	return t
 }
 

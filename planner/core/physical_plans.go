@@ -611,6 +611,15 @@ type PhysicalProjection struct {
 	AvoidColumnEvaluator bool
 }
 
+func (p *PhysicalProjection) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount()))
+	p.availableCost = true
+	return p.cost
+}
+
 // Clone implements PhysicalPlan interface.
 func (p *PhysicalProjection) Clone() (PhysicalPlan, error) {
 	cloned := new(PhysicalProjection)
@@ -640,6 +649,15 @@ type PhysicalTopN struct {
 	ByItems []*util.ByItems
 	Offset  uint64
 	Count   uint64
+}
+
+func (p *PhysicalTopN) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount(), true))
+	p.availableCost = true
+	return p.cost
 }
 
 // Clone implements PhysicalPlan interface.
@@ -674,6 +692,17 @@ type PhysicalApply struct {
 	CanUseCache bool
 	Concurrency int
 	OuterSchema []*expression.CorrelatedColumn
+}
+
+func (la *PhysicalApply) Cost() float64 {
+	if la.availableCost {
+		return la.cost
+	}
+	lChild := la.children[0]
+	rChild := la.children[1]
+	la.SetCost(la.GetCost(lChild.StatsCount(), rChild.StatsCount(), lChild.Cost(), rChild.Cost()))
+	la.availableCost = true
+	return la.cost
 }
 
 // Clone implements PhysicalPlan interface.
@@ -775,6 +804,17 @@ type PhysicalHashJoin struct {
 	mppShuffleJoin   bool
 }
 
+func (p *PhysicalHashJoin) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	lChild := p.children[0]
+	rChild := p.children[1]
+	p.SetCost(lChild.Cost() + rChild.Cost() + p.GetCost(lChild.StatsCount(), rChild.StatsCount()))
+	p.availableCost = true
+	return p.cost
+}
+
 // Clone implements PhysicalPlan interface.
 func (p *PhysicalHashJoin) Clone() (PhysicalPlan, error) {
 	cloned := new(PhysicalHashJoin)
@@ -858,6 +898,17 @@ type PhysicalIndexJoin struct {
 	InnerHashKeys []*expression.Column
 }
 
+func (p *PhysicalIndexJoin) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	innerPlan := p.children[p.InnerChildIdx]
+	outerPlan := p.children[1-p.InnerChildIdx]
+	p.SetCost(p.GetCost(outerPlan.StatsCount(), outerPlan.Cost(), innerPlan.StatsCount(), innerPlan.Cost()))
+	p.availableCost = true
+	return p.cost
+}
+
 // PhysicalIndexMergeJoin represents the plan of index look up merge join.
 type PhysicalIndexMergeJoin struct {
 	PhysicalIndexJoin
@@ -875,12 +926,34 @@ type PhysicalIndexMergeJoin struct {
 	Desc bool
 }
 
+func (p *PhysicalIndexMergeJoin) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	innerPlan := p.children[p.InnerChildIdx]
+	outerPlan := p.children[1-p.InnerChildIdx]
+	p.SetCost(p.GetCost(outerPlan.StatsCount(), outerPlan.Cost(), innerPlan.StatsCount(), innerPlan.Cost()))
+	p.availableCost = true
+	return p.cost
+}
+
 // PhysicalIndexHashJoin represents the plan of index look up hash join.
 type PhysicalIndexHashJoin struct {
 	PhysicalIndexJoin
 	// KeepOuterOrder indicates whether keeping the output result order as the
 	// outer side.
 	KeepOuterOrder bool
+}
+
+func (p *PhysicalIndexHashJoin) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	innerPlan := p.children[p.InnerChildIdx]
+	outerPlan := p.children[1-p.InnerChildIdx]
+	p.SetCost(p.GetCost(outerPlan.StatsCount(), outerPlan.Cost(), innerPlan.StatsCount(), innerPlan.Cost()))
+	p.availableCost = true
+	return p.cost
 }
 
 // PhysicalMergeJoin represents merge join implementation of LogicalJoin.
@@ -890,6 +963,17 @@ type PhysicalMergeJoin struct {
 	CompareFuncs []expression.CompareFunc
 	// Desc means whether inner child keep desc order.
 	Desc bool
+}
+
+func (p *PhysicalMergeJoin) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	lChild := p.children[0]
+	rChild := p.children[1]
+	p.SetCost(lChild.Cost() + rChild.Cost() + p.GetCost(lChild.StatsCount(), rChild.StatsCount()))
+	p.availableCost = true
+	return p.cost
 }
 
 // PhysicalExchangeReceiver accepts connection and receives data passively.
@@ -972,6 +1056,15 @@ type PhysicalLimit struct {
 	Count  uint64
 }
 
+func (p *PhysicalLimit) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost())
+	p.availableCost = true
+	return p.cost
+}
+
 // Clone implements PhysicalPlan interface.
 func (p *PhysicalLimit) Clone() (PhysicalPlan, error) {
 	cloned := new(PhysicalLimit)
@@ -989,6 +1082,21 @@ type PhysicalUnionAll struct {
 	physicalSchemaProducer
 
 	mpp bool
+}
+
+func (p *PhysicalUnionAll) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	var childMaxCost float64
+	for _, child := range p.children {
+		if childMaxCost < child.Cost() {
+			childMaxCost = child.Cost()
+		}
+	}
+	p.SetCost(p.GetCost(childMaxCost, len(p.children)))
+	p.availableCost = true
+	return p.cost
 }
 
 // Clone implements PhysicalPlan interface.
@@ -1101,6 +1209,28 @@ type PhysicalHashAgg struct {
 	basePhysicalAgg
 }
 
+func (p *PhysicalHashAgg) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+
+	// We may have 3-phase hash aggregation actually, strictly speaking, we'd better
+	// calculate cost of each phase and sum the results up, but in fact we don't have
+	// region level table stats, and the concurrency of the `partialAgg`,
+	// i.e, max(number_of_regions, DistSQLScanConcurrency) is unknown either, so it is hard
+	// to compute costs separately. We ignore region level parallelism for both hash
+	// aggregation and stream aggregation when calculating cost, though this would lead to inaccuracy,
+	// hopefully this inaccuracy would be imposed on both aggregation implementations,
+	// so they are still comparable horizontally.
+	// Also, we use the stats of `partialAgg` as the input of cost computing for TiDB layer
+	// hash aggregation, it would cause under-estimation as the reason mentioned in comment above.
+	// To make it simple, we also treat 2-phase parallel hash aggregation in TiDB layer as
+	// 1-phase when computing cost.
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount(), true, false))
+	p.availableCost = true
+	return p.cost
+}
+
 // Clone implements PhysicalPlan interface.
 func (p *PhysicalHashAgg) Clone() (PhysicalPlan, error) {
 	cloned := new(PhysicalHashAgg)
@@ -1126,6 +1256,15 @@ type PhysicalStreamAgg struct {
 	basePhysicalAgg
 }
 
+func (p *PhysicalStreamAgg) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount(), true))
+	p.availableCost = true
+	return p.cost
+}
+
 // Clone implements PhysicalPlan interface.
 func (p *PhysicalStreamAgg) Clone() (PhysicalPlan, error) {
 	cloned := new(PhysicalStreamAgg)
@@ -1142,6 +1281,15 @@ type PhysicalSort struct {
 	basePhysicalPlan
 
 	ByItems []*util.ByItems
+}
+
+func (p *PhysicalSort) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount(), p.Schema()))
+	p.availableCost = true
+	return p.cost
 }
 
 // Clone implements PhysicalPlan interface.
@@ -1217,6 +1365,15 @@ type PhysicalSelection struct {
 	basePhysicalPlan
 
 	Conditions []expression.Expression
+}
+
+func (p *PhysicalSelection) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.SetCost(p.children[0].Cost() + p.GetCost(p.children[0].StatsCount()))
+	p.availableCost = true
+	return p.cost
 }
 
 // Clone implements PhysicalPlan interface.

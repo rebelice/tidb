@@ -279,7 +279,7 @@ func (p *baseLogicalPlan) enumeratePhysicalPlans4Task(physicalPlans []PhysicalPl
 		}
 		opt.appendCandidate(p, curTask.plan(), prop)
 		// Get the most efficient one.
-		if curTask.cost() < bestTask.cost() || (bestTask.invalid() && !curTask.invalid()) {
+		if curTask.plan().Cost() < bestTask.plan().Cost() || (bestTask.invalid() && !curTask.invalid()) {
 			bestTask = curTask
 		}
 	}

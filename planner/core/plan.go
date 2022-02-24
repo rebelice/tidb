@@ -356,6 +356,9 @@ type PhysicalPlan interface {
 
 	// Clone clones this physical plan.
 	Clone() (PhysicalPlan, error)
+
+	// NeedReCalcCost set availableCost to false
+	NeedReCalcCost()
 }
 
 type baseLogicalPlan struct {
@@ -387,11 +390,23 @@ type basePhysicalPlan struct {
 	self             PhysicalPlan
 	children         []PhysicalPlan
 	cost             float64
+	// availableCost is used to identify whether the physical plan has already calculated the cost
+	availableCost bool
 }
 
 // Cost implements PhysicalPlan interface.
 func (p *basePhysicalPlan) Cost() float64 {
+	if p.availableCost {
+		return p.cost
+	}
+	p.children[0].Cost()
+	p.SetCost(p.children[0].Cost())
+	p.availableCost = true
 	return p.cost
+}
+
+func (p *basePhysicalPlan) NeedReCalcCost() {
+	p.availableCost = false
 }
 
 // SetCost implements PhysicalPlan interface.
