@@ -6627,3 +6627,11 @@ func TestCharsetIntroducer(t *testing.T) {
 	_, _, err = p.Parse("select _gbk 0b101001;", "", "")
 	require.EqualError(t, err, "[ddl:1115]Unsupported character introducer: 'gbk'")
 }
+
+func TestVisualStmt(t *testing.T) {
+	table := []testCase{
+		{"VISUAL SELECT * FROM t", true, "VISUAL SELECT * FROM `t`"},
+		{"VISUAL ANALYZE SELECT * FROM t", true, "VISUAL ANALYZE SELECT * FROM `t`"},
+	}
+	RunTest(t, table, false)
+}

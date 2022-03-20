@@ -707,6 +707,7 @@ import (
 	varPop                "VAR_POP"
 	varSamp               "VAR_SAMP"
 	verboseType           "VERBOSE"
+	visual                "VISUAL"
 	voter                 "VOTER"
 	voterConstraints      "VOTER_CONSTRAINTS"
 	voters                "VOTERS"
@@ -927,6 +928,7 @@ import (
 	TruncateTableStmt          "TRUNCATE TABLE statement"
 	UnlockTablesStmt           "Unlock tables statement"
 	UpdateStmt                 "UPDATE statement"
+	VisualStmt                 "Visual statement"
 	SetOprStmt                 "Union/Except/Intersect select statement"
 	SetOprStmtWithLimitOrderBy "Union/Except/Intersect select statement with limit and order by"
 	SetOprStmtWoutLimitOrderBy "Union/Except/Intersect select statement without limit and order by"
@@ -4585,6 +4587,22 @@ TraceStmt:
 		$6.SetText(parser.lexer.client, string(parser.src[startOffset:]))
 	}
 
+VisualStmt:
+	"VISUAL" ExplainableStmt
+	{
+		$$ = &ast.VisualStmt{
+			Stmt:    $2,
+			Analyze: false,
+		}
+	}
+|	"VISUAL" "ANALYZE" ExplainableStmt
+	{
+		$$ = &ast.VisualStmt{
+			Stmt:    $3,
+			Analyze: true,
+		}
+	}
+
 ExplainSym:
 	"EXPLAIN"
 |	"DESCRIBE"
@@ -6198,6 +6216,7 @@ NotKeywordToken:
 |	"LEARNER"
 |	"LEARNERS"
 |	"VERBOSE"
+|	"VISUAL"
 |	"VOTER"
 |	"VOTERS"
 |	"CONSTRAINTS"
@@ -11038,6 +11057,7 @@ Statement:
 |	UpdateStmt
 |	UseStmt
 |	UnlockTablesStmt
+|	VisualStmt
 |	LockTablesStmt
 |	ShutdownStmt
 |	RestartStmt

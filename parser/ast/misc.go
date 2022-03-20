@@ -256,6 +256,41 @@ func (n *ExplainStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// VisualStmt is a statement to get information for visual plans
+type VisualStmt struct {
+	stmtNode
+
+	Stmt    StmtNode
+	Analyze bool
+}
+
+// Restore implements Node interface.
+func (n *VisualStmt) Restore(ctx *format.RestoreCtx) error {
+	ctx.WriteKeyWord("VISUAL ")
+	if n.Analyze {
+		ctx.WriteKeyWord("ANALYZE ")
+	}
+	if err := n.Stmt.Restore(ctx); err != nil {
+		return errors.Annotate(err, "An error occurred while restore VisualStmt.Stmt")
+	}
+	return nil
+}
+
+func (n *VisualStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+
+	n = newNode.(*VisualStmt)
+	node, ok := n.Stmt.Accept(v)
+	if !ok {
+		return n, false
+	}
+	n.Stmt = node.(StmtNode)
+	return v.Leave(n)
+}
+
 // PlanReplayerStmt is a statement to dump or load information for recreating plans
 type PlanReplayerStmt struct {
 	stmtNode

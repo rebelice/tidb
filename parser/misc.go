@@ -783,6 +783,7 @@ var tokenMap = map[string]int{
 	"VIEW":                     view,
 	"VIRTUAL":                  virtual,
 	"VISIBLE":                  visible,
+	"VISUAL":                   visual,
 	"WARNINGS":                 warnings,
 	"WEEK":                     week,
 	"WEIGHT_STRING":            weightString,
