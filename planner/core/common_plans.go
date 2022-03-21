@@ -1155,6 +1155,15 @@ type PlanReplayer struct {
 	File     string
 }
 
+// Visual represents a visual plan.
+type Visual struct {
+	baseSchemaProducer
+
+	TargetPlan Plan
+	ExecStmt   ast.StmtNode
+	Analyze    bool
+}
+
 // IndexAdvise represents a index advise plan.
 type IndexAdvise struct {
 	baseSchemaProducer

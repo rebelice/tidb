@@ -1,0 +1,27 @@
+syntax = "proto3";
+package visual;
+option go_package = "main/visual";
+
+message VisualData {
+    // the name of the current operator
+    string name = 1;
+    // the cost of the current operator
+    //  for "visual analyze stmt" or slow queries: cost means real cost
+    //  for "visual stmt": cost means est_cost
+    double cost = 2;
+
+    double est_rows = 3;
+    uint64 act_rows = 4;
+
+    // The reader may use this
+    string access_table = 5;
+    string access_index = 6;
+    string access_partition = 7;
+
+    // The time spent by the current operator 
+    double time_us = 8;
+    // The current operator run at root/cop[tikv]/cop[tiflash]/cop[tidb]
+    string run_at = 9;
+    // The children of the current operator
+    repeated VisualData children = 10;
+}

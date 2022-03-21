@@ -729,6 +729,8 @@ func (b *PlanBuilder) Build(ctx context.Context, node ast.Node) (Plan, error) {
 		return b.buildChange(x)
 	case *ast.SplitRegionStmt:
 		return b.buildSplitRegion(x)
+	case *ast.VisualStmt:
+		return b.buildVisual(ctx, x)
 	}
 	return nil, ErrUnsupportedType.GenWithStack("Unsupported type %T", node)
 }
@@ -4493,6 +4495,25 @@ func (b *PlanBuilder) buildExplain(ctx context.Context, explain *ast.ExplainStmt
 	}
 
 	return b.buildExplainPlan(targetPlan, explain.Format, nil, explain.Analyze, explain.Stmt, nil)
+}
+
+func (b *PlanBuilder) buildVisual(ctx context.Context, visual *ast.VisualStmt) (Plan, error) {
+	targetPlan, _, err := OptimizeAstNode(ctx, b.ctx, visual.Stmt, b.is)
+	if err != nil {
+		return nil, err
+	}
+
+	p := &Visual{
+		TargetPlan: targetPlan,
+		ExecStmt:   visual.Stmt,
+		Analyze:    visual.Analyze,
+	}
+	p.ctx = b.ctx
+	schema := newColumnsWithNames(1)
+	schema.Append(buildColumnWithName("", "Value", mysql.TypeVarchar, 128))
+	p.SetSchema(schema.col2Schema())
+	p.names = schema.names
+	return p, nil
 }
 
 func (b *PlanBuilder) buildSelectInto(ctx context.Context, sel *ast.SelectStmt) (Plan, error) {

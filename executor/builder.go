@@ -295,6 +295,8 @@ func (b *executorBuilder) build(p plannercore.Plan) Executor {
 		return b.buildCTE(v)
 	case *plannercore.PhysicalCTETable:
 		return b.buildCTETableReader(v)
+	case *plannercore.Visual:
+		return b.buildVisual(v)
 	default:
 		if mp, ok := p.(MockPhysicalPlan); ok {
 			return mp.GetExecutor()
@@ -941,6 +943,20 @@ func (b *executorBuilder) buildPlanReplayer(v *plannercore.PlanReplayer) Executo
 		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ID()),
 		ExecStmt:     v.ExecStmt,
 		Analyze:      v.Analyze,
+	}
+	return e
+}
+
+func (b *executorBuilder) buildVisual(v *plannercore.Visual) Executor {
+	e := &VisualExec{
+		baseExecutor: newBaseExecutor(b.ctx, v.Schema(), v.ID()),
+		visual:       v,
+	}
+	if v.Analyze {
+		if b.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl == nil {
+			b.ctx.GetSessionVars().StmtCtx.RuntimeStatsColl = execdetails.NewRuntimeStatsColl(nil)
+		}
+		e.analyzeExec = b.build(v.TargetPlan)
 	}
 	return e
 }
